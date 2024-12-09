@@ -1,0 +1,853 @@
+#include <SDL.h>
+#include <SDL_image.h>
+#include <SDL_ttf.h>
+#include <iostream>
+#include <deque>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <string>
+#include <algorithm>
+#include <chrono>
+
+const int SCREEN_WIDTH = 1600;
+const int SCREEN_HEIGHT = 900;
+const int BLOCK_SIZE = 50;
+const int MAX_SCORES = 5;
+
+enum Direction { UP, DOWN, LEFT, RIGHT };
+
+struct SnakeBlock {
+    int x, y;
+};
+
+class SnakeGame {
+public:
+    SnakeGame();
+    ~SnakeGame();
+    void run();
+    void handleEvents();
+    void update();
+    void render();
+    void resetGame();
+    void spawnFood();
+    bool checkCollision(const std::deque<SnakeBlock>& snake);
+    bool checkBombCollision(const std::deque<SnakeBlock>& snake);
+    bool checkExplosionCollision(const std::deque<SnakeBlock>& snake);
+    void displayGameOverMessage(const std::string& message);
+    void createWall();
+    void createBomb();
+    void displayMainMenu();
+    void handleMainMenuEvents(bool& inMainMenu);
+    void displayHighestScores();
+    void updateHighestScores();
+    void displayPlayerSelectionMenu();
+    void handlePlayerSelectionEvents(bool& inPlayerSelectionMenu);
+
+private:
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    SDL_Texture* headTexture1;
+    SDL_Texture* bodyTexture1;
+    SDL_Texture* tailTexture1;
+    SDL_Texture* headTexture2;
+    SDL_Texture* bodyTexture2;
+    SDL_Texture* tailTexture2;
+    SDL_Texture* foodTexture;
+    SDL_Texture* backgroundTexture;
+    SDL_Texture* wallTexture;
+    SDL_Texture* warningTexture;
+    SDL_Texture* bombTexture;
+    SDL_Texture* explosionTexture;
+    SDL_Texture* gameOverTexture;
+    SDL_Texture* frameTexture;
+    TTF_Font* font;
+    TTF_Font* arialFont;
+    int score1;
+    int totalApplesEaten;
+    int speed;
+    std::deque<SnakeBlock> snake1;
+    std::deque<SnakeBlock> snake2;
+    Direction direction1;
+    Direction direction2;
+    SnakeBlock food;
+    bool gameOver;
+    bool foodEaten1;
+    bool foodEaten2;
+    std::vector<SDL_Rect> walls;
+    std::vector<SDL_Rect> pendingWalls;
+    bool showWarning;
+    SDL_Rect warningRect;
+    std::chrono::time_point<std::chrono::steady_clock> warningStartTime;
+    bool showBombWarning;
+    SDL_Rect bombRect;
+    std::chrono::time_point<std::chrono::steady_clock> bombStartTime;
+    bool bombExploded;
+    std::chrono::time_point<std::chrono::steady_clock> lastBombTime;
+    int selectedItem;
+    bool exitGame;
+    std::vector<int> highestScores;
+    std::vector<std::string> menuItems;
+    std::vector<std::string> playerSelectionItems;
+    bool twoPlayerMode;
+};
+
+SnakeGame::SnakeGame()
+    : window(nullptr), renderer(nullptr),
+    headTexture1(nullptr), bodyTexture1(nullptr),
+    tailTexture1(nullptr), headTexture2(nullptr),
+    bodyTexture2(nullptr), tailTexture2(nullptr),
+    foodTexture(nullptr), backgroundTexture(nullptr),
+    wallTexture(nullptr), warningTexture(nullptr),
+    bombTexture(nullptr), explosionTexture(nullptr),
+    gameOverTexture(nullptr), frameTexture(nullptr), font(nullptr),
+    arialFont(nullptr), score1(0), totalApplesEaten(0), speed(150), direction1(RIGHT), direction2(RIGHT),
+    gameOver(false), foodEaten1(false), foodEaten2(false), showWarning(false),
+    showBombWarning(false), bombExploded(false), selectedItem(0), exitGame(false),
+    menuItems({ "PLAY", "WATCH THE HIGHEST SCORE", "INTRODUCTION", "SETTING", "EXIT" }),
+    playerSelectionItems({ "1 PLAYER", "2 PLAYER" }), twoPlayerMode(false) {
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
+        std::cerr << "SDL_image could not initialize! SDL_image Error: " << IMG_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (TTF_Init() < 0) {
+        std::cerr << "SDL_ttf could not initialize! SDL_ttf Error: " << TTF_GetError() << std::endl;
+        exit(1);
+    }
+
+    window = SDL_CreateWindow("Snake Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+
+    headTexture1 = IMG_LoadTexture(renderer, "snake-head1.png");
+    bodyTexture1 = IMG_LoadTexture(renderer, "snake-body1.png");
+    tailTexture1 = IMG_LoadTexture(renderer, "snake-tail1.png");
+    headTexture2 = IMG_LoadTexture(renderer, "snake-head2.png");
+    bodyTexture2 = IMG_LoadTexture(renderer, "snake-body2.png");
+    tailTexture2 = IMG_LoadTexture(renderer, "snake-tail2.png");
+    foodTexture = IMG_LoadTexture(renderer, "food.png");
+    backgroundTexture = IMG_LoadTexture(renderer, "nen3.png");
+    wallTexture = IMG_LoadTexture(renderer, "wall.png");
+    warningTexture = IMG_LoadTexture(renderer, "warning.png");
+    bombTexture = IMG_LoadTexture(renderer, "bomb.png");
+    explosionTexture = IMG_LoadTexture(renderer, "explosion.png");
+    gameOverTexture = IMG_LoadTexture(renderer, "nen3.png");
+    frameTexture = IMG_LoadTexture(renderer, "khung.png");
+
+    font = TTF_OpenFont("phongchu.ttf", 48);
+    arialFont = TTF_OpenFont("arial.ttf", 48);
+    if (!font || !arialFont) {
+        std::cerr << "Failed to load font! TTF_Error: " << TTF_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (!headTexture1 || !bodyTexture1 || !tailTexture1 ||
+        !headTexture2 || !bodyTexture2 || !tailTexture2 ||
+        !foodTexture || !backgroundTexture || !wallTexture || !warningTexture ||
+        !bombTexture || !explosionTexture || !gameOverTexture || !frameTexture) {
+        std::cerr << "Failed to load textures! SDL_image Error: " << IMG_GetError() << std::endl;
+        exit(1);
+    }
+
+    resetGame();
+}
+
+SnakeGame::~SnakeGame() {
+    SDL_DestroyTexture(headTexture1);
+    SDL_DestroyTexture(bodyTexture1);
+    SDL_DestroyTexture(tailTexture1);
+    SDL_DestroyTexture(headTexture2);
+    SDL_DestroyTexture(bodyTexture2);
+    SDL_DestroyTexture(tailTexture2);
+    SDL_DestroyTexture(foodTexture);
+    SDL_DestroyTexture(backgroundTexture);
+    SDL_DestroyTexture(wallTexture);
+    SDL_DestroyTexture(warningTexture);
+    SDL_DestroyTexture(bombTexture);
+    SDL_DestroyTexture(explosionTexture);
+    SDL_DestroyTexture(gameOverTexture);
+    SDL_DestroyTexture(frameTexture);
+    TTF_CloseFont(font);
+    TTF_CloseFont(arialFont);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    TTF_Quit();
+    IMG_Quit();
+    SDL_Quit();
+}
+
+void SnakeGame::resetGame() {
+    snake1.clear();
+    snake2.clear();
+    snake1.push_back({ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 });
+    if (twoPlayerMode) {
+        snake2.push_back({ SCREEN_WIDTH / 2 + BLOCK_SIZE, SCREEN_HEIGHT / 2 });
+    }
+    direction1 = RIGHT;
+    direction2 = RIGHT;
+    speed = 150;
+    gameOver = false;
+    foodEaten1 = false;
+    foodEaten2 = false;
+    score1 = 0;
+    totalApplesEaten = 0;
+    walls.clear();
+    pendingWalls.clear();
+    showWarning = false;
+    showBombWarning = false;
+    bombExploded = false;
+    lastBombTime = std::chrono::steady_clock::now();
+    spawnFood();
+}
+
+void SnakeGame::createWall() {
+    int x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+    int y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+    bool horizontal = rand() % 2 == 0;
+
+    for (int i = 0; i < 3; ++i) {
+        if (horizontal) {
+            pendingWalls.push_back({ x + i * BLOCK_SIZE, y, BLOCK_SIZE, BLOCK_SIZE });
+        }
+        else {
+            pendingWalls.push_back({ x, y + i * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE });
+        }
+    }
+    showWarning = true;
+    warningRect = { x, y, BLOCK_SIZE, BLOCK_SIZE };
+    warningStartTime = std::chrono::steady_clock::now();
+}
+
+void SnakeGame::createBomb() {
+    int x, y;
+    bool validPosition = false;
+    while (!validPosition) {
+        x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+        y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+        SDL_Rect bombRectTemp = { x, y, BLOCK_SIZE, BLOCK_SIZE };
+        validPosition = true;
+        for (const auto& wall : walls) {
+            if (SDL_HasIntersection(&bombRectTemp, &wall)) {
+                validPosition = false;
+                break;
+            }
+        }
+    }
+    showBombWarning = true;
+    bombRect = { x, y, BLOCK_SIZE, BLOCK_SIZE };
+    bombStartTime = std::chrono::steady_clock::now();
+}
+
+void SnakeGame::spawnFood() {
+    food.x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+    food.y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+}
+
+bool SnakeGame::checkCollision(const std::deque<SnakeBlock>& snake) {
+    for (size_t i = 1; i < snake.size(); ++i) {
+        if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) {
+            return true;
+        }
+    }
+
+    SDL_Rect headRect = { snake[0].x, snake[0].y, BLOCK_SIZE, BLOCK_SIZE };
+    for (const auto& wall : walls) {
+        if (SDL_HasIntersection(&headRect, &wall)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SnakeGame::checkBombCollision(const std::deque<SnakeBlock>& snake) {
+    SDL_Rect headRect = { snake[0].x, snake[0].y, BLOCK_SIZE, BLOCK_SIZE };
+    SDL_Rect bombCollisionRect = { bombRect.x, bombRect.y, BLOCK_SIZE, BLOCK_SIZE };
+    if (SDL_HasIntersection(&headRect, &bombCollisionRect)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool SnakeGame::checkExplosionCollision(const std::deque<SnakeBlock>& snake) {
+    SDL_Rect headRect = { snake[0].x, snake[0].y, BLOCK_SIZE, BLOCK_SIZE };
+    SDL_Rect explosionRect = { bombRect.x, bombRect.y, BLOCK_SIZE, BLOCK_SIZE };
+    if (SDL_HasIntersection(&headRect, &explosionRect)) {
+        return true;
+    }
+
+    return false;
+}
+
+void SnakeGame::handleEvents() {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                if (direction1 != DOWN) direction1 = UP;
+                break;
+            case SDLK_DOWN:
+                if (direction1 != UP) direction1 = DOWN;
+                break;
+            case SDLK_LEFT:
+                if (direction1 != RIGHT) direction1 = LEFT;
+                break;
+            case SDLK_RIGHT:
+                if (direction1 != LEFT) direction1 = RIGHT;
+                break;
+            case SDLK_w:
+                if (direction2 != DOWN) direction2 = UP;
+                break;
+            case SDLK_s:
+                if (direction2 != UP) direction2 = DOWN;
+                break;
+            case SDLK_a:
+                if (direction2 != RIGHT) direction2 = LEFT;
+                break;
+            case SDLK_d:
+                if (direction2 != LEFT) direction2 = RIGHT;
+                break;
+            case SDLK_RETURN:
+                if (gameOver) {
+                    resetGame();
+                }
+                break;
+            case SDLK_ESCAPE:
+                gameOver = true;
+                exitGame = true;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::update() {
+    if (gameOver) return;
+
+    auto now = std::chrono::steady_clock::now();
+    if (showWarning && std::chrono::duration_cast<std::chrono::seconds>(now - warningStartTime).count() >= 3) {
+        for (const auto& wall : pendingWalls) {
+            walls.push_back(wall);
+        }
+        pendingWalls.clear();
+        showWarning = false;
+    }
+
+    if (showBombWarning && std::chrono::duration_cast<std::chrono::seconds>(now - bombStartTime).count() >= 3) {
+        bombExploded = true;
+        showBombWarning = false;
+    }
+
+    if (bombExploded && std::chrono::duration_cast<std::chrono::seconds>(now - bombStartTime).count() >= 4) {
+        bombExploded = false;
+    }
+
+    SnakeBlock newHead1 = snake1.front();
+    SnakeBlock newHead2;
+    if (twoPlayerMode) {
+        newHead2 = snake2.front();
+    }
+
+    switch (direction1) {
+    case UP:
+        newHead1.y -= BLOCK_SIZE;
+        break;
+    case DOWN:
+        newHead1.y += BLOCK_SIZE;
+        break;
+    case LEFT:
+        newHead1.x -= BLOCK_SIZE;
+        break;
+    case RIGHT:
+        newHead1.x += BLOCK_SIZE;
+        break;
+    }
+
+    if (twoPlayerMode) {
+        switch (direction2) {
+        case UP:
+            newHead2.y -= BLOCK_SIZE;
+            break;
+        case DOWN:
+            newHead2.y += BLOCK_SIZE;
+            break;
+        case LEFT:
+            newHead2.x -= BLOCK_SIZE;
+            break;
+        case RIGHT:
+            newHead2.x += BLOCK_SIZE;
+            break;
+        }
+    }
+
+    if (newHead1.x < 0) newHead1.x = SCREEN_WIDTH - BLOCK_SIZE;
+    else if (newHead1.x >= SCREEN_WIDTH) newHead1.x = 0;
+
+    if (newHead1.y < 0) newHead1.y = SCREEN_HEIGHT - BLOCK_SIZE;
+    else if (newHead1.y >= SCREEN_HEIGHT) newHead1.y = 0;
+
+    if (twoPlayerMode) {
+        if (newHead2.x < 0) newHead2.x = SCREEN_WIDTH - BLOCK_SIZE;
+        else if (newHead2.x >= SCREEN_WIDTH) newHead2.x = 0;
+
+        if (newHead2.y < 0) newHead2.y = SCREEN_HEIGHT - BLOCK_SIZE;
+        else if (newHead2.y >= SCREEN_HEIGHT) newHead2.y = 0;
+    }
+
+    snake1.push_front(newHead1);
+    if (twoPlayerMode) {
+        snake2.push_front(newHead2);
+    }
+
+    if (newHead1.x == food.x && newHead1.y == food.y) {
+        foodEaten1 = true;
+        if (!twoPlayerMode) score1 += 10;
+        totalApplesEaten++;
+        spawnFood();
+
+        if (speed > 50) speed -= 5;
+
+        if (totalApplesEaten % 5 == 0) {
+            createWall();
+        }
+
+        if (totalApplesEaten % 2 == 0) {
+            createBomb();
+        }
+    }
+
+    if (twoPlayerMode && newHead2.x == food.x && newHead2.y == food.y) {
+        foodEaten2 = true;
+        totalApplesEaten++;
+        spawnFood();
+
+        if (speed > 50) speed -= 5;
+
+        if (totalApplesEaten % 5 == 0) {
+            createWall();
+        }
+
+        if (totalApplesEaten % 2 == 0) {
+            createBomb();
+        }
+    }
+
+    if (!foodEaten1) {
+        snake1.pop_back();
+    }
+    else {
+        foodEaten1 = false;
+    }
+
+    if (twoPlayerMode && !foodEaten2) {
+        snake2.pop_back();
+    }
+    else if (twoPlayerMode) {
+        foodEaten2 = false;
+    }
+
+    bool player1Collision = checkCollision(snake1) || checkBombCollision(snake1) || (bombExploded && checkExplosionCollision(snake1));
+    bool player2Collision = twoPlayerMode && (checkCollision(snake2) || checkBombCollision(snake2) || (bombExploded && checkExplosionCollision(snake2)));
+
+    if (player1Collision || player2Collision) {
+        gameOver = true;
+        if (twoPlayerMode) {
+            if (player1Collision && player2Collision) {
+                displayGameOverMessage("DRAW!");
+            }
+            else if (player1Collision) {
+                displayGameOverMessage("PLAYER 2 WIN");
+            }
+            else if (player2Collision) {
+                displayGameOverMessage("PLAYER 1 WIN");
+            }
+        }
+        else {
+            updateHighestScores();
+            displayGameOverMessage("GAME OVER");
+        }
+    }
+}
+
+void SnakeGame::render() {
+    SDL_Rect bgRect = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+    SDL_RenderCopy(renderer, backgroundTexture, nullptr, &bgRect);
+
+    for (size_t i = 0; i < snake1.size(); ++i) {
+        SDL_Rect rect = { snake1[i].x, snake1[i].y, BLOCK_SIZE, BLOCK_SIZE };
+        SDL_Texture* texture = nullptr;
+        double angle = 0;
+
+        if (i == 0) {
+            texture = headTexture1;
+            if (direction1 == UP) angle = 0;
+            else if (direction1 == RIGHT) angle = 90;
+            else if (direction1 == DOWN) angle = 180;
+            else if (direction1 == LEFT) angle = 270;
+        }
+        else if (i == snake1.size() - 1) {
+            texture = tailTexture1;
+            auto prev = snake1[i - 1];
+            if (prev.y < snake1[i].y) angle = 0;
+            else if (prev.x > snake1[i].x) angle = 90;
+            else if (prev.y > snake1[i].y) angle = 180;
+            else if (prev.x < snake1[i].x) angle = 270;
+        }
+        else {
+            texture = bodyTexture1;
+            auto prev = snake1[i - 1];
+            auto next = snake1[i + 1];
+            if (prev.x != snake1[i].x) angle = 90;
+        }
+
+        SDL_RenderCopyEx(renderer, texture, nullptr, &rect, angle, nullptr, SDL_FLIP_NONE);
+    }
+
+    if (twoPlayerMode) {
+        for (size_t i = 0; i < snake2.size(); ++i) {
+            SDL_Rect rect = { snake2[i].x, snake2[i].y, BLOCK_SIZE, BLOCK_SIZE };
+            SDL_Texture* texture = nullptr;
+            double angle = 0;
+
+            if (i == 0) {
+                texture = headTexture2;
+                if (direction2 == UP) angle = 0;
+                else if (direction2 == RIGHT) angle = 90;
+                else if (direction2 == DOWN) angle = 180;
+                else if (direction2 == LEFT) angle = 270;
+            }
+            else if (i == snake2.size() - 1) {
+                texture = tailTexture2;
+                auto prev = snake2[i - 1];
+                if (prev.y < snake2[i].y) angle = 0;
+                else if (prev.x > snake2[i].x) angle = 90;
+                else if (prev.y > snake2[i].y) angle = 180;
+                else if (prev.x < snake2[i].x) angle = 270;
+            }
+            else {
+                texture = bodyTexture2;
+                auto prev = snake2[i - 1];
+                auto next = snake2[i + 1];
+                if (prev.x != snake2[i].x) angle = 90;
+            }
+
+            SDL_RenderCopyEx(renderer, texture, nullptr, &rect, angle, nullptr, SDL_FLIP_NONE);
+        }
+    }
+
+    SDL_Rect foodRect = { food.x, food.y, BLOCK_SIZE, BLOCK_SIZE };
+    SDL_RenderCopy(renderer, foodTexture, nullptr, &foodRect);
+
+    for (const auto& wall : walls) {
+        SDL_RenderCopy(renderer, wallTexture, nullptr, &wall);
+    }
+
+    if (showWarning) {
+        SDL_RenderCopy(renderer, warningTexture, nullptr, &warningRect);
+    }
+
+    if (showBombWarning) {
+        SDL_RenderCopy(renderer, bombTexture, nullptr, &bombRect);
+    }
+
+    if (bombExploded) {
+        SDL_Rect explosionRect = { bombRect.x, bombRect.y, BLOCK_SIZE, BLOCK_SIZE };
+        SDL_RenderCopy(renderer, explosionTexture, nullptr, &explosionRect);
+    }
+
+    SDL_Color black = { 0, 0, 0, 255 };
+    if (!twoPlayerMode) {
+        std::string scoreText1 = "Player 1 Score: " + std::to_string(score1);
+        SDL_Surface* textSurface1 = TTF_RenderText_Solid(font, scoreText1.c_str(), black);
+        SDL_Texture* textTexture1 = SDL_CreateTextureFromSurface(renderer, textSurface1);
+        SDL_Rect textRect1 = { 20, 20, textSurface1->w, textSurface1->h };
+        SDL_RenderCopy(renderer, textTexture1, nullptr, &textRect1);
+        SDL_FreeSurface(textSurface1);
+        SDL_DestroyTexture(textTexture1);
+    }
+
+    SDL_RenderPresent(renderer);
+}
+
+void SnakeGame::displayGameOverMessage(const std::string& message) {
+    SDL_Rect gameOverRect = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+    SDL_RenderCopy(renderer, gameOverTexture, nullptr, &gameOverRect);
+
+    SDL_Rect frameRect = { (SCREEN_WIDTH - 1500) / 2, (SCREEN_HEIGHT - 600) / 2, 1500, 600 };
+    SDL_RenderCopy(renderer, frameTexture, nullptr, &frameRect);
+
+    SDL_Color black = { 0, 0, 0, 255 };
+    std::string gameOverMessage = message;
+
+    TTF_Font* largeArialFont = TTF_OpenFont("arial.ttf", 72);
+    if (!largeArialFont) {
+        std::cerr << "Failed to load large font! TTF_Error: " << TTF_GetError() << std::endl;
+        exit(1);
+    }
+
+    SDL_Surface* messageSurface = TTF_RenderText_Solid(largeArialFont, gameOverMessage.c_str(), black);
+    SDL_Texture* messageTexture = SDL_CreateTextureFromSurface(renderer, messageSurface);
+
+    SDL_Rect messageRect = { frameRect.x + 210, frameRect.y + 220, messageSurface->w, messageSurface->h };
+    SDL_RenderCopy(renderer, messageTexture, nullptr, &messageRect);
+
+    std::string instruction = "PRESS ENTER TO BACK MAIN MENU";
+    SDL_Surface* instructionSurface = TTF_RenderText_Solid(largeArialFont, instruction.c_str(), black);
+    SDL_Texture* instructionTexture = SDL_CreateTextureFromSurface(renderer, instructionSurface);
+
+    SDL_Rect instructionRect = { frameRect.x + 270, frameRect.y + 300, instructionSurface->w, instructionSurface->h };
+    SDL_RenderCopy(renderer, instructionTexture, nullptr, &instructionRect);
+
+    SDL_FreeSurface(messageSurface);
+    SDL_DestroyTexture(messageTexture);
+    SDL_FreeSurface(instructionSurface);
+    SDL_DestroyTexture(instructionTexture);
+    TTF_CloseFont(largeArialFont);
+
+    SDL_RenderPresent(renderer);
+
+    bool waiting = true;
+    while (waiting) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN) {
+                waiting = false;
+                displayMainMenu(); // Quay lại menu chính
+            }
+        }
+    }
+}
+
+void SnakeGame::displayMainMenu() {
+    bool inMainMenu = true;
+    SDL_Color black = { 0, 0, 0, 255 };
+
+    while (inMainMenu) {
+        handleMainMenuEvents(inMainMenu);
+
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        std::string title = "SNAKE GAME";
+        SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+        SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurface);
+        SDL_DestroyTexture(titleTexture);
+
+        for (size_t i = 0; i < menuItems.size(); ++i) {
+            SDL_Color color = (i == selectedItem) ? SDL_Color{ 255, 0, 0, 255 } : black;
+            SDL_Surface* menuSurface = TTF_RenderText_Solid(arialFont, menuItems[i].c_str(), color);
+            SDL_Texture* menuTexture = SDL_CreateTextureFromSurface(renderer, menuSurface);
+            SDL_Rect menuRect = { SCREEN_WIDTH / 2 - menuSurface->w / 2, 200 + i * 80, menuSurface->w, menuSurface->h };
+            SDL_RenderCopy(renderer, menuTexture, nullptr, &menuRect);
+            SDL_FreeSurface(menuSurface);
+            SDL_DestroyTexture(menuTexture);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+}
+
+void SnakeGame::handleMainMenuEvents(bool& inMainMenu) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            inMainMenu = false;
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                selectedItem = (selectedItem - 1 + menuItems.size()) % menuItems.size();
+                break;
+            case SDLK_DOWN:
+                selectedItem = (selectedItem + 1) % menuItems.size();
+                break;
+            case SDLK_RETURN:
+                inMainMenu = false;
+                switch (selectedItem) {
+                case 0:
+                    displayPlayerSelectionMenu();
+                    return;
+                case 1:
+                    displayHighestScores();
+                    inMainMenu = true;
+                    break;
+                case 2:
+                    // Thêm chức năng giới thiệu ở đây
+                    break;
+                case 3:
+                    // Thêm chức năng cài đặt ở đây
+                    break;
+                case 4:
+                    SDL_Quit();
+                    exit(0);
+                    return;
+                }
+                break;
+            case SDLK_ESCAPE:
+                inMainMenu = false;
+                gameOver = true;
+                exitGame = true;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::displayPlayerSelectionMenu() {
+    bool inPlayerSelectionMenu = true;
+    SDL_Color black = { 0, 0, 0, 255 };
+
+    while (inPlayerSelectionMenu) {
+        handlePlayerSelectionEvents(inPlayerSelectionMenu);
+
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        std::string title = "SELECT PLAYER MODE";
+        SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+        SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurface);
+        SDL_DestroyTexture(titleTexture);
+
+        for (size_t i = 0; i < playerSelectionItems.size(); ++i) {
+            SDL_Color color = (i == selectedItem) ? SDL_Color{ 255, 0, 0, 255 } : black;
+            SDL_Surface* menuSurface = TTF_RenderText_Solid(arialFont, playerSelectionItems[i].c_str(), color);
+            SDL_Texture* menuTexture = SDL_CreateTextureFromSurface(renderer, menuSurface);
+            SDL_Rect menuRect = { SCREEN_WIDTH / 2 - menuSurface->w / 2, 200 + i * 80, menuSurface->w, menuSurface->h };
+            SDL_RenderCopy(renderer, menuTexture, nullptr, &menuRect);
+            SDL_FreeSurface(menuSurface);
+            SDL_DestroyTexture(menuTexture);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+}
+
+void SnakeGame::handlePlayerSelectionEvents(bool& inPlayerSelectionMenu) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            inPlayerSelectionMenu = false;
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                selectedItem = (selectedItem - 1 + playerSelectionItems.size()) % playerSelectionItems.size();
+                break;
+            case SDLK_DOWN:
+                selectedItem = (selectedItem + 1) % playerSelectionItems.size();
+                break;
+            case SDLK_RETURN:
+                inPlayerSelectionMenu = false;
+                switch (selectedItem) {
+                case 0:
+                    twoPlayerMode = false;
+                    resetGame();
+                    gameOver = false;
+                    return;
+                case 1:
+                    twoPlayerMode = true;
+                    resetGame();
+                    gameOver = false;
+                    return;
+                }
+                break;
+            case SDLK_ESCAPE:
+                inPlayerSelectionMenu = false;
+                displayMainMenu();
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::displayHighestScores() {
+    SDL_Color black = { 0, 0, 0, 255 };
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+    std::string title = "HIGHEST SCORES";
+    SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+    SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+    SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+    SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+    SDL_FreeSurface(titleSurface);
+    SDL_DestroyTexture(titleTexture);
+
+    for (size_t i = 0; i < highestScores.size(); ++i) {
+        std::string scoreText = std::to_string(i + 1) + ". " + std::to_string(highestScores[i]);
+        SDL_Surface* scoreSurface = TTF_RenderText_Solid(arialFont, scoreText.c_str(), black);
+        SDL_Texture* scoreTexture = SDL_CreateTextureFromSurface(renderer, scoreSurface);
+        SDL_Rect scoreRect = { SCREEN_WIDTH / 2 - scoreSurface->w / 2, 150 + i * 50, scoreSurface->w, scoreSurface->h };
+        SDL_RenderCopy(renderer, scoreTexture, nullptr, &scoreRect);
+        SDL_FreeSurface(scoreSurface);
+        SDL_DestroyTexture(scoreTexture);
+    }
+
+    SDL_RenderPresent(renderer);
+
+    bool waiting = true;
+    while (waiting) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN) {
+                waiting = false;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::updateHighestScores() {
+    highestScores.push_back(score1);
+    std::sort(highestScores.begin(), highestScores.end(), std::greater<int>());
+    if (highestScores.size() > MAX_SCORES) {
+        highestScores.pop_back();
+    }
+}
+
+void SnakeGame::run() {
+    srand(static_cast<unsigned int>(time(0)));
+    bool inMainMenu = true;
+    displayMainMenu();
+
+    while (inMainMenu && !gameOver) {
+        handleMainMenuEvents(inMainMenu);
+    }
+
+    if (!exitGame) {
+        while (!gameOver) {
+            handleEvents();
+            update();
+            render();
+            SDL_Delay(speed);
+        }
+        displayGameOverMessage("GAME OVER");
+    }
+}
+
+int main(int argc, char* argv[]) {
+    SnakeGame game;
+    game.run();
+    return 0;
+}
