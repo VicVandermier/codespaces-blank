@@ -1,0 +1,1975 @@
+#include <SDL.h>
+#include <SDL_image.h>
+#include <SDL_ttf.h>
+#include <SDL_mixer.h>
+#include <iostream>
+#include <deque>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <string>
+#include <algorithm>
+#include <chrono>
+
+const int SCREEN_WIDTH = 1600;
+const int SCREEN_HEIGHT = 900;
+const int BLOCK_SIZE = 50;
+const int MAX_SCORES = 5;
+
+const int DIAMOND_DURATION = 12;
+const int CHEST_POPUP_DURATION = 3;
+enum Direction { UP, DOWN, LEFT, RIGHT };
+
+
+struct SnakeBlock {
+    int x, y;
+};
+struct Bomb {
+    SDL_Rect rect;
+    std::chrono::time_point<std::chrono::steady_clock> spawnTime;
+    bool visible;
+    bool exploded;   // MỚI: đã nổ chưa
+    std::chrono::time_point<std::chrono::steady_clock> explodeTime; // thời điểm bắt đầu nổ
+};
+enum class GameState {
+    MAIN_MENU,
+    PLAYER_SELECTION_MENU,
+    PLAYING,
+    PAUSED,
+    HIGHEST_SCORES,
+    INTRODUCTION,
+    SETTINGS
+};
+
+class SnakeGame {
+public:
+    SnakeGame();
+    ~SnakeGame();
+    void run();
+
+private:
+    void handleEvents();
+    void update();
+    void render();
+    void resetGame();
+    void spawnFood();
+    bool checkCollision(const std::deque<SnakeBlock>& snake);
+    bool checkBombCollision(const std::deque<SnakeBlock>& snake);
+    bool checkExplosionCollision(const std::deque<SnakeBlock>& snake);
+    bool checkSnakeCollision(const std::deque<SnakeBlock>& snakeA, const std::deque<SnakeBlock>& snakeB);
+    void displayGameOverMessage(const std::string& message);
+    void createWall();
+    void createBomb();
+    void createBomb(int n);
+    void spawnChest();
+    void handleChestEffect(const std::string& effect);
+    void updateChestEffect();
+    void renderChestEffect();
+    void applyDiamondEffect();
+    void applyScissorsEffect();
+    void applyStarEffect();
+    void displayMainMenu();
+    void handleMainMenuEvents(bool& inMainMenu);
+    void displayHighestScores();
+    void updateHighestScores();
+    void displayPlayerSelectionMenu();
+    void handlePlayerSelectionEvents(bool& inPlayerSelectionMenu, bool& startGame);
+    void showIntroductionImage(const std::string& imageName);
+    void loadResources();
+    void freeResources();
+    int getBombLimit();
+    void displayIntroduction();
+    void displaySettingMenu();
+    void displayPauseMenu();
+
+
+
+    // -------------- Biến SDL --------------
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+
+    // -------------- Texture Rắn --------------
+    SDL_Texture* headTexture1;
+    SDL_Texture* bodyTexture1;
+    SDL_Texture* tailTexture1;
+
+    // Rắn 2 (nếu có 2 người chơi)
+    SDL_Texture* headTexture2;
+    SDL_Texture* bodyTexture2;
+    SDL_Texture* tailTexture2;
+
+    // -------------- Texture Đồ Họa --------------
+    SDL_Texture* foodTexture;
+    SDL_Texture* backgroundTexture;
+    SDL_Texture* wallTexture;
+    SDL_Texture* warningTexture;
+    SDL_Texture* bombTexture;
+    SDL_Texture* explosionTexture;
+    SDL_Texture* gameOverTexture;
+    SDL_Texture* frameTexture;
+    SDL_Texture* chestTexture;
+    SDL_Texture* diamondHeadTexture;
+    SDL_Texture* diamondBodyTexture;
+    SDL_Texture* diamondTailTexture;
+    SDL_Texture* scissorsTexture;
+    SDL_Texture* starTexture;
+    SDL_Texture* frame1Texture;
+
+    // -------------- Font --------------
+    TTF_Font* font;
+    TTF_Font* arialFont;
+    TTF_Font* largeArialFont;
+
+    // -------------- Trạng thái game --------------
+    bool gameOver;
+    bool exitGame;
+    int score1;
+    int score2;
+    int totalApplesEaten;
+    int speed;
+    bool player1Collision;
+    bool player2Collision;
+    Direction direction1;
+    Direction direction2;
+    bool twoPlayerMode;
+
+    std::deque<SnakeBlock> snake1;
+    std::deque<SnakeBlock> snake2;
+    SnakeBlock food;
+    bool foodEaten1;
+    bool foodEaten2;
+
+    // -------------- Tường --------------
+    std::vector<SDL_Rect> walls;
+    std::vector<SDL_Rect> pendingWalls;
+    bool showWarning;
+    SDL_Rect warningRect;
+    std::chrono::time_point<std::chrono::steady_clock> warningStartTime;
+
+
+    // -------------- Bomb --------------
+    bool showBombWarning;
+    SDL_Rect bombRect;
+    std::chrono::time_point<std::chrono::steady_clock> bombStartTime;
+    bool bombExploded;
+    bool firstBombCreated;
+    std::chrono::time_point<std::chrono::steady_clock> lastBombTime;
+    std::vector<Bomb> bombs;
+
+    // -------------- Menu --------------
+    int selectedItem;
+    std::vector<int> highestScores;
+    std::vector<std::string> menuItems;
+    std::vector<std::string> playerSelectionItems;
+    std::chrono::time_point<std::chrono::steady_clock> twoPlayerStartTime;
+
+    // -------------- Chest --------------
+    bool chestVisible;
+    SDL_Rect chestRect;
+    std::chrono::time_point<std::chrono::steady_clock> chestSpawnTime;
+    std::chrono::time_point<std::chrono::steady_clock> chestLastSpawnTime;
+    std::chrono::time_point<std::chrono::steady_clock> chestEffectEndTime;
+    float spinDuration;
+
+    // **Popup** hiển thị 3 item trong 3 giây
+    bool chestOpened;               // Rắn đã ăn rương (chưa random xong)
+    bool chestPopupActive;          // Đang hiển thị popup 3 item
+    std::chrono::time_point<std::chrono::steady_clock> chestPopupStartTime;
+    int itemIndex;
+
+
+
+    // -------------- Hiệu ứng --------------
+    std::string chestEffect;
+    // Diamond
+    bool diamondEffectActive;
+    std::chrono::time_point<std::chrono::steady_clock> diamondEffectStartTime;
+    bool diamondEffectActive2;
+
+    // Scissors: cắt đuôi + tăng speed
+    bool ScissorsEffectActive;
+
+    // Star: thay bằng cơ chế starCount (cộng dồn)
+    int starCount;  // số lượng sao rắn đang có
+    int starCount2;
+    bool starEffectActive;
+    // -------------- Âm Thanh --------------
+    Mix_Music* bgMusic; // Nhạc nền
+    int volumePercent;   // Âm lượng (0-100)
+    std::string winnerMessage;
+    Direction nextDirection1;
+    Direction nextDirection2;
+    GameState currentState; 
+    GameState previousState;
+
+};
+
+SnakeGame::SnakeGame()
+    :window(nullptr), renderer(nullptr),
+    headTexture1(nullptr), bodyTexture1(nullptr),
+    tailTexture1(nullptr), headTexture2(nullptr),
+    bodyTexture2(nullptr), tailTexture2(nullptr),
+    foodTexture(nullptr), backgroundTexture(nullptr),
+    wallTexture(nullptr), warningTexture(nullptr),
+    bombTexture(nullptr), explosionTexture(nullptr),
+    gameOverTexture(nullptr), frameTexture(nullptr),
+    chestTexture(nullptr), diamondHeadTexture(nullptr),
+    diamondBodyTexture(nullptr), diamondTailTexture(nullptr),
+    scissorsTexture(nullptr), starTexture(nullptr),
+    font(nullptr), arialFont(nullptr), largeArialFont(nullptr),
+    gameOver(false), exitGame(false), score2(0),
+    score1(0), totalApplesEaten(0), speed(150),
+    player1Collision(false), player2Collision(false),
+    direction1(LEFT), direction2(RIGHT),
+    foodEaten1(false), foodEaten2(false),
+    showWarning(false), showBombWarning(false),
+    bombExploded(false), firstBombCreated(false),
+    chestVisible(false), chestOpened(false), chestPopupActive(false),
+    diamondEffectActive(false), ScissorsEffectActive(false),
+    diamondEffectActive2(false),
+    starCount2(0),
+    starEffectActive(false), starCount(0),
+    currentState(GameState::MAIN_MENU),
+    volumePercent(50),
+    menuItems({ "PLAY", "WATCH THE HIGHEST SCORE", "INTRUCTION", "SETTING", "EXIT" }),
+    playerSelectionItems({ "1 PLAYER", "2 PLAYER" }), twoPlayerMode(false) {
+
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        std::cerr << "SDL không thể khởi tạo! SDL_Error: " << SDL_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
+        std::cerr << "SDL_image không thể khởi tạo! SDL_image Error: " << IMG_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (TTF_Init() < 0) {
+        std::cerr << "SDL_ttf không thể khởi tạo! SDL_ttf Error: " << TTF_GetError() << std::endl;
+        exit(1);
+    }
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        std::cerr << "SDL_mixer không thể khởi tạo! SDL_mixer Error: " << Mix_GetError() << std::endl;
+        exit(1);
+    }
+
+    window = SDL_CreateWindow("Snake Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    bgMusic = Mix_LoadMUS("song3.mp3");
+    if (!bgMusic) {
+        std::cerr << "Không thể tải nhạc nền! SDL_mixer Error: " << Mix_GetError() << std::endl;
+    }
+    else {
+        Mix_PlayMusic(bgMusic, -1); // -1 để lặp vô hạn
+        Mix_VolumeMusic(volumePercent * MIX_MAX_VOLUME / 100); // Thiết lập âm lượng
+    }
+    chestLastSpawnTime = std::chrono::steady_clock::now();
+    loadResources();
+    resetGame();
+}
+
+SnakeGame::~SnakeGame() {
+    freeResources();
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    TTF_Quit();
+    IMG_Quit();
+    SDL_Quit();
+}
+
+void SnakeGame::loadResources() {
+    headTexture1 = IMG_LoadTexture(renderer, "snake-head1.png");
+    bodyTexture1 = IMG_LoadTexture(renderer, "snake-body1.png");
+    tailTexture1 = IMG_LoadTexture(renderer, "snake-tail1.png");
+    headTexture2 = IMG_LoadTexture(renderer, "snake-head2.png");
+    bodyTexture2 = IMG_LoadTexture(renderer, "snake-body2.png");
+    tailTexture2 = IMG_LoadTexture(renderer, "snake-tail2.png");
+    foodTexture = IMG_LoadTexture(renderer, "food.png");
+    backgroundTexture = IMG_LoadTexture(renderer, "nen3.png");
+    wallTexture = IMG_LoadTexture(renderer, "wall.png");
+    warningTexture = IMG_LoadTexture(renderer, "warning.png");
+    bombTexture = IMG_LoadTexture(renderer, "bomb.png");
+    explosionTexture = IMG_LoadTexture(renderer, "explosion.png");
+    gameOverTexture = IMG_LoadTexture(renderer, "nen3.png");
+    frameTexture = IMG_LoadTexture(renderer, "frame.png");
+    chestTexture = IMG_LoadTexture(renderer, "chest.png");
+    diamondHeadTexture = IMG_LoadTexture(renderer, "diamond-head.png");
+    diamondBodyTexture = IMG_LoadTexture(renderer, "diamond-body.png");
+    diamondTailTexture = IMG_LoadTexture(renderer, "diamond-tail.png");
+    scissorsTexture = IMG_LoadTexture(renderer, "scissors.png");
+    starTexture = IMG_LoadTexture(renderer, "star.png");
+    frame1Texture = IMG_LoadTexture(renderer, "frame1.png");
+
+    font = TTF_OpenFont("phongchu.ttf", 48);
+    arialFont = TTF_OpenFont("arial.ttf", 48);
+    largeArialFont = TTF_OpenFont("arial.ttf", 72);
+
+    if (!font || !arialFont || !largeArialFont) {
+        std::cerr << "Không thể tải font! TTF_Error: " << TTF_GetError() << std::endl;
+        exit(1);
+    }
+
+    if (!headTexture1 || !bodyTexture1 || !tailTexture1 ||
+        !headTexture2 || !bodyTexture2 || !tailTexture2 ||
+        !foodTexture || !backgroundTexture || !wallTexture ||
+        !warningTexture || !bombTexture || !explosionTexture ||
+        !gameOverTexture || !frameTexture ||
+        !chestTexture || !diamondHeadTexture || !diamondBodyTexture ||
+        !diamondTailTexture || !scissorsTexture || !starTexture) {
+        std::cerr << "Không thể tải texture! SDL_image Error: " << IMG_GetError() << std::endl;
+        exit(1);
+    }
+}
+
+void SnakeGame::freeResources() {
+    SDL_DestroyTexture(headTexture1);
+    SDL_DestroyTexture(bodyTexture1);
+    SDL_DestroyTexture(tailTexture1);
+    SDL_DestroyTexture(headTexture2);
+    SDL_DestroyTexture(bodyTexture2);
+    SDL_DestroyTexture(tailTexture2);
+    SDL_DestroyTexture(foodTexture);
+    SDL_DestroyTexture(backgroundTexture);
+    SDL_DestroyTexture(wallTexture);
+    SDL_DestroyTexture(warningTexture);
+    SDL_DestroyTexture(bombTexture);
+    SDL_DestroyTexture(explosionTexture);
+    SDL_DestroyTexture(gameOverTexture);
+    SDL_DestroyTexture(frameTexture);
+    SDL_DestroyTexture(chestTexture);
+    SDL_DestroyTexture(diamondHeadTexture);
+    SDL_DestroyTexture(diamondBodyTexture);
+    SDL_DestroyTexture(diamondTailTexture);
+    SDL_DestroyTexture(scissorsTexture);
+    SDL_DestroyTexture(starTexture);
+    TTF_CloseFont(font);
+    TTF_CloseFont(arialFont);
+    TTF_CloseFont(largeArialFont);
+}
+
+
+void SnakeGame::resetGame() {
+    bombs.clear();
+    snake1.clear();
+    snake2.clear();
+    snake1.push_back({ SCREEN_WIDTH - BLOCK_SIZE * 3, SCREEN_HEIGHT / 2 }); // Rắn 1 ở bên trái
+    if (twoPlayerMode) {
+        snake2.push_back({ BLOCK_SIZE * 2, SCREEN_HEIGHT / 2 }); // Rắn 2 ở bên phải
+    }
+    direction1 = RIGHT;
+    direction2 = LEFT;
+    speed = 150;
+    gameOver = false;
+    player1Collision = false;
+    player2Collision = false;
+    foodEaten1 = false;
+    foodEaten2 = false;
+    score1 = 0;
+    score2 = 0;
+    totalApplesEaten = 0;
+    walls.clear();
+    pendingWalls.clear();
+    showWarning = false;
+    showBombWarning = false;
+    bombExploded = false;
+    firstBombCreated = false;
+    lastBombTime = std::chrono::steady_clock::now();
+    chestVisible = false;
+    chestOpened = false;
+    chestPopupActive = false;
+    spinDuration = 0.0f;
+    itemIndex = 0;
+    diamondEffectActive2 = false;
+    starCount2 = 0;
+
+
+    diamondEffectActive = false;
+    starEffectActive = false;
+    ScissorsEffectActive = false;
+    twoPlayerStartTime = std::chrono::steady_clock::now();
+
+
+    starCount = 0;
+    volumePercent = 50; // Reset âm lượng về 50%
+    if (bgMusic) {
+        Mix_VolumeMusic(volumePercent * MIX_MAX_VOLUME / 100);
+    }
+    spawnFood();
+}
+
+void SnakeGame::spawnFood() {
+    bool validPosition = false;
+    while (!validPosition) {
+        food.x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+        food.y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+        validPosition = true;
+
+        // Kiểm tra snake1
+        for (auto& segment : snake1) {
+            if (segment.x == food.x && segment.y == food.y) {
+                validPosition = false;
+                break;
+            }
+        }
+        // Kiểm tra snake2
+        if (twoPlayerMode) {
+            for (auto& segment : snake2) {
+                if (segment.x == food.x && segment.y == food.y) {
+                    validPosition = false;
+                    break;
+                }
+            }
+        }
+        // Kiểm tra walls
+        for (auto& w : walls) {
+            if (food.x == w.x && food.y == w.y) {
+                validPosition = false;
+                break;
+            }
+        }
+        // Kiểm tra bombs
+        for (auto& b : bombs) {
+            if (b.visible && food.x == b.rect.x && food.y == b.rect.y) {
+                validPosition = false;
+                break;
+            }
+        }
+        // Check 3x3 warningRect if showWarning == true
+        if (showWarning) {
+            // warningRect.x, .y => Tâm 3 block => ...
+            // Giả sử warningRect.x, warningRect.y là toạ độ block
+            int wx = warningRect.x;
+            int wy = warningRect.y;
+            // Phạm vi 3x3 => (wx - BLOCK_SIZE <= food.x <= wx + 2*BLOCK_SIZE), vv...
+            if (food.x >= wx - BLOCK_SIZE && food.x <= wx + 2 * BLOCK_SIZE &&
+                food.y >= wy - BLOCK_SIZE && food.y <= wy + 2 * BLOCK_SIZE) {
+                validPosition = false;
+            }
+        }
+    }
+}
+
+void SnakeGame::createWall() {
+    int x, y;
+    bool validPosition = false;
+    while (!validPosition) {
+        x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE - 3)) * BLOCK_SIZE;
+        y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE - 3)) * BLOCK_SIZE;
+        bool horizontal = rand() % 2 == 0;
+        validPosition = true;
+
+        std::vector<SDL_Rect> newWalls;
+
+        for (int i = 0; i < 3; ++i) {
+            SDL_Rect wallRect;
+            if (horizontal) {
+                wallRect = { x + i * BLOCK_SIZE, y, BLOCK_SIZE, BLOCK_SIZE };
+            }
+            else {
+                wallRect = { x, y + i * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE };
+            }
+
+            // Kiểm tra xem tường có đè lên rắn 1 không
+            for (const auto& segment : snake1) {
+                if (segment.x == wallRect.x && segment.y == wallRect.y) {
+                    validPosition = false;
+                    break;
+                }
+            }
+
+            // Kiểm tra rắn 2 nếu ở chế độ 2 người chơi
+            if (twoPlayerMode) {
+                for (const auto& segment : snake2) {
+                    if (segment.x == wallRect.x && segment.y == wallRect.y) {
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!validPosition) break;
+
+            newWalls.push_back(wallRect);
+        }
+
+        if (validPosition) {
+            pendingWalls.insert(pendingWalls.end(), newWalls.begin(), newWalls.end());
+            showWarning = true;
+            warningRect = { x, y, BLOCK_SIZE * (horizontal ? 1 : 1), BLOCK_SIZE * (horizontal ? 1 : 1) };
+            warningStartTime = std::chrono::steady_clock::now();
+        }
+        if (x == food.x && y == food.y) {
+            validPosition = false;
+        }
+    }
+}
+
+
+int SnakeGame::getBombLimit() {
+    if (score1 >= 500) return 5;
+    else if (score1 >= 400) return 4;
+    else if (score1 >= 300) return 3;
+    else if (score1 >= 200) return 2;
+    return 1;  // <200
+}
+
+void SnakeGame::createBomb() {
+    // Mặc định tạo 1 bomb
+    createBomb(1);
+}
+void SnakeGame::createBomb(int n) {
+    for (int i = 0; i < n; i++) {
+        Bomb b;
+        bool validPos = false;
+        int x, y;
+
+        while (!validPos) {
+            x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+            y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+            validPos = true;
+            if (x == food.x && y == food.y) {
+                validPos = false;
+            }
+
+            // Kiểm tra walls
+            for (auto& w : walls) {
+                if (x == w.x && y == w.y) {
+                    validPos = false;
+                    break;
+                }
+            }
+            // Kiểm tra rắn 1
+            for (auto& seg : snake1) {
+                if (seg.x == x && seg.y == y) {
+                    validPos = false;
+                    break;
+                }
+            }
+            // Kiểm tra rắn 2 (nếu twoPlayerMode)
+            if (twoPlayerMode) {
+                for (auto& seg : snake2) {
+                    if (seg.x == x && seg.y == y) {
+                        validPos = false;
+                        break;
+                    }
+                }
+            }
+            // Kiểm tra bomb cũ (tránh trùng vị trí)
+            for (auto& oldBomb : bombs) {
+                if (oldBomb.visible && oldBomb.rect.x == x && oldBomb.rect.y == y) {
+                    validPos = false;
+                    break;
+                }
+            }
+        }
+
+        b.rect = { x, y, BLOCK_SIZE, BLOCK_SIZE };
+        b.spawnTime = std::chrono::steady_clock::now();
+        b.visible = true;
+        b.exploded = false;
+        bombs.push_back(b);
+    }
+
+}
+
+
+
+void SnakeGame::spawnChest() {
+    bool validPosition = false;
+    while (!validPosition) {
+        chestRect.x = (rand() % (SCREEN_WIDTH / BLOCK_SIZE)) * BLOCK_SIZE;
+        chestRect.y = (rand() % (SCREEN_HEIGHT / BLOCK_SIZE)) * BLOCK_SIZE;
+        chestRect.w = BLOCK_SIZE;
+        chestRect.h = BLOCK_SIZE;
+        validPosition = true;
+
+        // Kiểm tra không trùng với các vật khác...
+        for (const auto& segment : snake1) {
+            if (segment.x == chestRect.x && segment.y == chestRect.y) {
+                validPosition = false;
+                break;
+            }
+        }
+
+        if (twoPlayerMode) {
+            for (const auto& segment : snake2) {
+                if (segment.x == chestRect.x && segment.y == chestRect.y) {
+                    validPosition = false;
+                    break;
+                }
+            }
+        }
+
+        for (const auto& wall : walls) {
+            if (chestRect.x == wall.x && chestRect.y == wall.y) {
+                validPosition = false;
+                break;
+            }
+        }
+    }
+    chestVisible = true;
+    chestSpawnTime = std::chrono::steady_clock::now();
+}
+
+
+void SnakeGame::handleChestEffect(const std::string& effect) {
+    if (effect == "diamond") {
+        applyStarEffect();
+    }
+    else if (effect == "scissors") {
+        applyDiamondEffect();
+    }
+    else if (effect == "star") {
+        applyScissorsEffect();
+
+    }
+}
+
+
+void SnakeGame::applyDiamondEffect() {
+    diamondEffectActive = true;
+    diamondEffectStartTime = std::chrono::steady_clock::now();
+}
+
+void SnakeGame::applyScissorsEffect() {
+    int segmentsToRemove = rand() % 3 + 3; // cắt đuôi 3-5 đốt
+    for (int i = 0; i < segmentsToRemove; ++i) {
+        if (snake1.size() > 1) {
+            snake1.pop_back();
+        }
+    }
+    speed += segmentsToRemove * 10;
+}
+
+void SnakeGame::applyStarEffect() {
+    // thay vì starEffectActive = true, ta cộng dồn starCount
+    starCount++;
+    // starEffectActive = true; // Không cần cờ boolean nữa, dùng starCount>0
+}
+
+// ================== updateChestEffect ================== //
+void SnakeGame::updateChestEffect() {
+    // Diamond hết hạn sau 12 giây
+    if (diamondEffectActive) {
+        auto now = std::chrono::steady_clock::now();
+        int elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - diamondEffectStartTime).count();
+        if (elapsed >= DIAMOND_DURATION) {
+            diamondEffectActive = false;
+        }
+    }
+}
+
+// =============== renderChestEffect =============== //
+// Chỉ vẽ popup 3 item, icon star,... Kim cương vẽ thẳng trong render() hoặc tuỳ
+void SnakeGame::renderChestEffect() {
+    if (!chestPopupActive) return;  // Nếu popupActive=false, không vẽ
+
+    // BẬT BLEND MODE
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    int popupW = 500; // to hơn
+    int popupH = 200; // to hơn
+    int xPopup = (SCREEN_WIDTH - popupW) / 2;
+    int yPopup = (SCREEN_HEIGHT - popupH) / 2;
+    SDL_Rect popupRect = { xPopup, yPopup, popupW, popupH };
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 80);  // Trong suốt
+    SDL_RenderFillRect(renderer, &popupRect);
+
+    // Vẽ 3 icon item với size 80×80
+    int itemSize = 80;
+
+    SDL_Rect diamondR = { xPopup + 60, yPopup + 60, itemSize, itemSize };
+    SDL_RenderCopy(renderer, diamondHeadTexture, nullptr, &diamondR);
+
+    SDL_Rect scissorR = { xPopup + 180, yPopup + 60, itemSize, itemSize };
+    SDL_RenderCopy(renderer, scissorsTexture, nullptr, &scissorR);
+
+    SDL_Rect starR = { xPopup + 300, yPopup + 60, itemSize, itemSize };
+    SDL_RenderCopy(renderer, starTexture, nullptr, &starR);
+
+    // Vẽ khung frame1Texture -> khung lớn 90×90
+    SDL_Rect frameRect = { 0, 0, 90, 90 };
+    int targetX, targetY;
+    if (itemIndex == 0) {
+        targetX = xPopup + 60 - 5;   // -5 để khung che item
+        targetY = yPopup + 60 - 5;
+    }
+    else if (itemIndex == 1) {
+        targetX = xPopup + 180 - 5;
+        targetY = yPopup + 60 - 5;
+    }
+    else {
+        targetX = xPopup + 300 - 5;
+        targetY = yPopup + 60 - 5;
+    }
+
+    frameRect.x = targetX;
+    frameRect.y = targetY;
+    SDL_RenderCopy(renderer, frame1Texture, nullptr, &frameRect);
+
+    // Trả blend mode về mặc định (nếu muốn)
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+}
+
+
+
+bool SnakeGame::checkCollision(const std::deque<SnakeBlock>& snake) {
+    if (snake.size() <= 1) return false;
+    // Cắn đuôi
+    for (size_t i = 1; i < snake.size(); ++i) {
+        if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) {
+            return true;
+        }
+    }
+    // Tường
+    for (size_t i = 0; i < walls.size(); ++i) {
+        if (snake[0].x == walls[i].x && snake[0].y == walls[i].y) {
+            if (diamondEffectActive) {
+                walls.erase(walls.begin() + i);
+                return false;
+            }
+            else if (starCount > 0) {
+                starCount--;
+                walls.erase(walls.begin() + i);
+                return false;
+            }
+            else {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool SnakeGame::checkBombCollision(const std::deque<SnakeBlock>& snake) {
+    // Không có bombRect để va chạm
+    if (!showBombWarning) {
+        return false;
+    }
+
+    // Nếu đầu rắn trùng tọa độ bombRect
+    if (snake[0].x == bombRect.x && snake[0].y == bombRect.y) {
+        // (1) Rắn đang có Kim cương
+        if (diamondEffectActive) {
+            showBombWarning = false;
+            bombExploded = false;
+            bombRect = { 0, 0, 0, 0 };
+            lastBombTime = std::chrono::steady_clock::now();
+            // Kim cương phá bomb, rắn không chết
+            return false;
+        }
+        // (2) Rắn đang có Sao
+        else if (starCount > 0) {
+            starCount--;
+            showBombWarning = false;
+            bombExploded = false;
+            bombRect = { 0, 0, 0, 0 };
+            lastBombTime = std::chrono::steady_clock::now();
+            // Sao phá bomb, rắn không chết
+            return false;
+        }
+        // (3) Rắn thường => chết
+        else {
+            // Xoá bomb
+            showBombWarning = false;
+            bombExploded = false;
+            bombRect = { 0, 0, 0, 0 };
+            lastBombTime = std::chrono::steady_clock::now();
+
+            // Ở đây ta **chỉ** báo hiệu “rắn chết”, 
+            // còn “ai thắng?” sẽ xét ở hàm update().
+            return true;
+        }
+    }
+
+    // Không va chạm bomb
+    return false;
+}
+
+
+bool SnakeGame::checkExplosionCollision(const std::deque<SnakeBlock>& snake) {
+    if (bombExploded && snake[0].x == bombRect.x && snake[0].y == bombRect.y) {
+        // Nếu diamondEffectActive => rắn ko chết
+        // starCount > 0 => cũng ko chết (starCount--)
+        if (diamondEffectActive) {
+            // Xoá bombRect, rắn an toàn
+            bombRect = { 0,0,0,0 };
+            return false;
+        }
+        else if (starCount > 0) {
+            starCount--;
+            bombRect = { 0,0,0,0 };
+            return false;
+        }
+        else {
+            return true; // chết
+        }
+    }
+    return false;
+}
+
+bool SnakeGame::checkSnakeCollision(const std::deque<SnakeBlock>& snakeA, const std::deque<SnakeBlock>& snakeB) {
+    for (size_t i = 0; i < snakeB.size(); ++i) {
+        if (snakeA[0].x == snakeB[i].x && snakeA[0].y == snakeB[i].y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SnakeGame::handleEvents() {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                if (direction1 != DOWN && nextDirection1 != DOWN) {
+                    nextDirection1 = UP;
+                }
+                break;
+            case SDLK_DOWN:
+                if (direction1 != UP && nextDirection1 != UP) {
+                    nextDirection1 = DOWN;
+                }
+                break;
+            case SDLK_LEFT:
+                if (direction1 != RIGHT && nextDirection1 != RIGHT) {
+                    nextDirection1 = LEFT;
+                }
+                break;
+            case SDLK_RIGHT:
+                if (direction1 != LEFT && nextDirection1 != LEFT) {
+                    nextDirection1 = RIGHT;
+                }
+                break;
+            case SDLK_w:
+                if (direction2 != DOWN && nextDirection2 != DOWN) {
+                    nextDirection2 = UP;
+                }
+                break;
+            case SDLK_s:
+                if (direction2 != UP && nextDirection2 != UP) {
+                    nextDirection2 = DOWN;
+                }
+                break;
+            case SDLK_a:
+                if (direction2 != RIGHT && nextDirection2 != RIGHT) {
+                    nextDirection2 = LEFT;
+                }
+                break;
+            case SDLK_d:
+                if (direction2 != LEFT && nextDirection2 != LEFT) {
+                    nextDirection2 = RIGHT;
+                }
+                break;
+            case SDLK_ESCAPE:
+                if (currentState == GameState::PLAYING) {
+                    currentState = GameState::PAUSED;
+                }
+                break;
+            }
+        }
+    }
+}
+
+
+void SnakeGame::update() {
+    if (gameOver) return;
+    if (nextDirection1 != direction1) {
+        direction1 = nextDirection1;
+    }
+
+    if (twoPlayerMode && nextDirection2 != direction2) {
+        direction2 = nextDirection2;
+    }
+
+    SnakeBlock newHead1 = snake1.front();
+    SnakeBlock newHead2;
+    if (twoPlayerMode) {
+        newHead2 = snake2.front();
+    }
+
+    // Di chuyển rắn 1
+    switch (direction1) {
+    case UP:
+        newHead1.y -= BLOCK_SIZE; break;
+    case DOWN:
+        newHead1.y += BLOCK_SIZE; break;
+    case LEFT:
+        newHead1.x -= BLOCK_SIZE; break;
+    case RIGHT:
+        newHead1.x += BLOCK_SIZE; break;
+    }
+
+    // Di chuyển rắn 2 (nếu 2P)
+    if (twoPlayerMode) {
+        switch (direction2) {
+        case UP:
+            newHead2.y -= BLOCK_SIZE; break;
+        case DOWN:
+            newHead2.y += BLOCK_SIZE; break;
+        case LEFT:
+            newHead2.x -= BLOCK_SIZE; break;
+        case RIGHT:
+            newHead2.x += BLOCK_SIZE; break;
+        }
+    }
+
+    // Bo màn hình rắn 1
+    if (newHead1.x < 0) newHead1.x = SCREEN_WIDTH - BLOCK_SIZE;
+    else if (newHead1.x >= SCREEN_WIDTH) newHead1.x = 0;
+
+    if (newHead1.y < 0) newHead1.y = SCREEN_HEIGHT - BLOCK_SIZE;
+    else if (newHead1.y >= SCREEN_HEIGHT) newHead1.y = 0;
+
+    // Bo màn hình rắn 2 (nếu 2P)
+    if (twoPlayerMode) {
+        if (newHead2.x < 0) newHead2.x = SCREEN_WIDTH - BLOCK_SIZE;
+        else if (newHead2.x >= SCREEN_WIDTH) newHead2.x = 0;
+
+        if (newHead2.y < 0) newHead2.y = SCREEN_HEIGHT - BLOCK_SIZE;
+        else if (newHead2.y >= SCREEN_HEIGHT) newHead2.y = 0;
+    }
+
+    // Thêm head mới
+    snake1.push_front(newHead1);
+    if (twoPlayerMode) {
+        snake2.push_front(newHead2);
+    }
+
+    // Rắn 1 ăn táo
+    if (newHead1.x == food.x && newHead1.y == food.y) {
+        foodEaten1 = true;
+        score1 += 10;
+        totalApplesEaten++;
+        spawnFood();
+
+        if (speed > 50) speed -= 4;
+        if (totalApplesEaten % 5 == 0) {
+            createWall();
+        }
+    }
+
+    // Rắn 2 ăn táo
+    if (twoPlayerMode && newHead2.x == food.x && newHead2.y == food.y) {
+        foodEaten2 = true;
+        totalApplesEaten++;
+        score2 += 10;
+        spawnFood();
+
+        if (speed > 50) speed -= 4;
+        if (totalApplesEaten % 5 == 0) {
+            createWall();
+        }
+    }
+
+    // pop_back nếu không ăn
+    if (!foodEaten1) snake1.pop_back();
+    else foodEaten1 = false;
+
+    if (twoPlayerMode) {
+        if (!foodEaten2) snake2.pop_back();
+        else foodEaten2 = false;
+    }
+
+    // ---------- TIME LOGIC ----------
+    auto now = std::chrono::steady_clock::now();
+
+    // Tính bombLimit dựa trên điểm
+    int bombLimit = getBombLimit();  // 1..4 tuỳ logic
+
+    // ====== VÒNG LẶP bombs ======
+    for (auto& b : bombs) {
+        if (!b.visible) continue;  // Bomb đã ẩn
+
+        // --- Check collision rắn 1 ---
+        if (snake1[0].x == b.rect.x && snake1[0].y == b.rect.y) {
+            if (diamondEffectActive) {
+                b.visible = false;
+                lastBombTime = now;  // Lưu thời điểm bomb bị phá
+            }
+            else if (starCount > 0) {
+                starCount--;
+                b.visible = false;
+                lastBombTime = now;
+            }
+            else {
+                // Rắn thường => chết
+                gameOver = true;
+                return;
+            }
+        }
+
+        // --- Check collision rắn 2 ---
+        if (twoPlayerMode && snake2[0].x == b.rect.x && snake2[0].y == b.rect.y) {
+            if (diamondEffectActive2) {
+                b.visible = false;
+                lastBombTime = now;
+            }
+            else if (starCount2 > 0) {
+                starCount2--;
+                b.visible = false;
+                lastBombTime = now;
+            }
+            else {
+                gameOver = true;
+                return;
+            }
+        }
+
+        // --- Bomb nổ sau 3 giây ---
+        int bombTime = std::chrono::duration_cast<std::chrono::seconds>(now - b.spawnTime).count();
+        if (!b.exploded) {
+            // Chưa nổ => kiểm tra nổ
+            if (bombTime >= 3) {
+                b.exploded = true;
+                b.explodeTime = now; // ghi nhận thời điểm bắt đầu nổ
+            }
+        }
+        else {
+            // Bomb đang trong trạng thái nổ
+            int explodeDuration = std::chrono::duration_cast<std::chrono::milliseconds>(now - b.explodeTime).count();
+            if (explodeDuration >= 2000) {
+                // 2000ms  hiệu ứng nổ → bomb biến mất hẳn
+                b.visible = false;
+                lastBombTime = now;
+            }
+        }
+    }
+
+    // ====== TÍNH visibleBombs ======
+    int visibleBombs = 0;
+    for (auto& b : bombs) {
+        if (b.visible) visibleBombs++;
+    }
+
+    // ====== TẠO THÊM BOMBS (NẾU CẦN) ======
+    // Nếu visibleBombs < bombLimit => spawn thêm bombs
+    int elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(now - lastBombTime).count();
+    if (visibleBombs < bombLimit && elapsedSec >= 1) {
+        int need = bombLimit - visibleBombs;
+        createBomb(need);     // Tạo thêm 'need' quả bomb
+        // lastBombTime = now; // (Tuỳ chọn: reset lastBombTime)
+    }
+
+    // Warning tường
+    if (showWarning && std::chrono::duration_cast<std::chrono::seconds>(now - warningStartTime).count() >= 3) {
+        walls.insert(walls.end(), pendingWalls.begin(), pendingWalls.end());
+        pendingWalls.clear();
+        showWarning = false;
+    }
+
+    // -------- CHEST LOGIC --------
+    // Tạo rương khi đủ 6 táo và cách lần spawn trước >=20s
+    if (!twoPlayerMode) {
+        // Code cũ spawn chest
+        if (totalApplesEaten >= 6 &&
+            std::chrono::duration_cast<std::chrono::seconds>(now - chestLastSpawnTime).count() >= 20) {
+            spawnChest();
+            chestLastSpawnTime = now;
+        }
+    }
+
+
+    // Rắn 1 ăn rương
+    if (chestVisible && newHead1.x == chestRect.x && newHead1.y == chestRect.y) {
+        chestVisible = false;
+        chestOpened = true;
+        chestPopupActive = true;
+        chestPopupStartTime = now;
+        // Quay random 3~6 giây
+        spinDuration = 3 + (rand() % 4);  // 3..6
+    }
+
+    // Popup 3 item
+    if (chestPopupActive) {
+        float elapsedSec = std::chrono::duration_cast<std::chrono::milliseconds>(now - chestPopupStartTime).count() / 1000.0f;
+
+        // itemIndex thay đổi mỗi 0.5s => itemIndex = floor(elapsedSec / 0.5) % 3
+        // Hoặc: itemIndex = (int)(elapsedSec * 2) % 3
+        itemIndex = (int)(elapsedSec * 2) % 3;   // 0->1->2->0...
+
+        // Nếu elapsedSec >= spinDuration => dừng
+        if (elapsedSec >= spinDuration) {
+            chestPopupActive = false;
+            chestOpened = false;
+
+            int chosenIndex = itemIndex;
+            if (chosenIndex == 0) {
+                handleChestEffect("diamond");
+            }
+            else if (chosenIndex == 1) {
+                handleChestEffect("scissors");
+            }
+            else {
+                handleChestEffect("star");
+            }
+        }
+    }
+
+    // Check collision
+    player1Collision = checkCollision(snake1) || checkBombCollision(snake1) || checkExplosionCollision(snake1);
+    player2Collision = twoPlayerMode && (checkCollision(snake2) || checkBombCollision(snake2) || checkExplosionCollision(snake2));
+    bool collision1 = checkBombCollision(snake1);
+    bool collision2 = twoPlayerMode && checkBombCollision(snake2);
+    if (collision1) {
+        // Rắn 1 chết
+        player1Collision = true;
+    }
+    if (collision2) {
+        // Rắn 2 chết
+        player2Collision = true;
+    }
+
+    if (twoPlayerMode) {
+        if (checkSnakeCollision(snake1, snake2)) player1Collision = true;
+        if (checkSnakeCollision(snake2, snake1)) player2Collision = true;
+        if (snake1[0].x == snake2[0].x && snake1[0].y == snake2[0].y) {
+            player1Collision = true;
+            player2Collision = true;
+        }
+    }
+    if (twoPlayerMode) {
+        if (player1Collision && !player2Collision) {
+            gameOver = true;
+            winnerMessage = "PLAYER 2 WINS!";
+            return;
+        }
+        else if (player2Collision && !player1Collision) {
+            gameOver = true;
+            winnerMessage = "PLAYER 1 WINS!";
+            return;
+        }
+        else if (player1Collision && player2Collision) {
+            gameOver = true;
+            winnerMessage = "DRAW!";
+            return;
+        }
+    }
+    else {
+        if (player1Collision) {
+            gameOver = true;
+            return;
+        }
+    }
+
+
+
+    // Cập nhật hiệu ứng
+    updateChestEffect();
+}
+
+
+
+
+void SnakeGame::render() {
+    if (currentState != GameState::PLAYING) {
+        // Nếu không phải đang chơi, không vẽ trò chơi
+        return;
+    }
+    SDL_RenderClear(renderer);
+    SDL_Rect bgRect = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+    SDL_RenderCopy(renderer, backgroundTexture, nullptr, &bgRect);
+    bool diamondActiveNow = diamondEffectActive;  // Kiểm tra cờ kim cương rắn 1
+
+    for (size_t i = 0; i < snake1.size(); ++i) {
+        SDL_Rect rect = { snake1[i].x, snake1[i].y, BLOCK_SIZE, BLOCK_SIZE };
+        SDL_Texture* texture = nullptr;
+        double angle = 0.0;
+
+        if (diamondActiveNow) {
+            // -------- Rắn ở dạng kim cương --------
+            if (i == 0) {
+                // Khối đầu
+                texture = diamondHeadTexture;
+                // Logic xoay đầu giống rắn thường
+                if (direction1 == UP) angle = 0;
+                else if (direction1 == RIGHT) angle = 90;
+                else if (direction1 == DOWN) angle = 180;
+                else if (direction1 == LEFT) angle = 270;
+            }
+            else if (i == snake1.size() - 1) {
+                // Khối đuôi
+                texture = diamondTailTexture;
+                // Xoay đuôi dựa trên vị trí khối trước
+                auto prev = snake1[i - 1];
+                if (prev.y < snake1[i].y) angle = 0;
+                else if (prev.x > snake1[i].x) angle = 90;
+                else if (prev.y > snake1[i].y) angle = 180;
+                else if (prev.x < snake1[i].x) angle = 270;
+            }
+            else {
+                // Khối thân
+                texture = diamondBodyTexture;
+                // Thân rắn xoay ngang/dọc giống logic cũ
+                auto prev = snake1[i - 1];
+                auto next = snake1[i + 1];
+                // Nếu rắn di chuyển ngang => angle = 90
+                if (prev.x != snake1[i].x) angle = 90;
+            }
+        }
+        else {
+            // -------- Rắn ở dạng thường --------
+            if (i == 0) {
+                texture = headTexture1;
+                if (direction1 == UP) angle = 0;
+                else if (direction1 == RIGHT) angle = 90;
+                else if (direction1 == DOWN) angle = 180;
+                else if (direction1 == LEFT) angle = 270;
+            }
+            else if (i == snake1.size() - 1) {
+                texture = tailTexture1;
+                auto prev = snake1[i - 1];
+                if (prev.y < snake1[i].y) angle = 0;
+                else if (prev.x > snake1[i].x) angle = 90;
+                else if (prev.y > snake1[i].y) angle = 180;
+                else if (prev.x < snake1[i].x) angle = 270;
+            }
+            else {
+                texture = bodyTexture1;
+                auto prev = snake1[i - 1];
+                auto next = snake1[i + 1];
+                if (prev.x != snake1[i].x) angle = 90;
+            }
+        }
+
+        // Cuối cùng, vẽ segment kèm góc xoay
+        SDL_RenderCopyEx(renderer, texture, nullptr, &rect, angle, nullptr, SDL_FLIP_NONE);
+    }
+
+
+    // Vẽ snake2
+    if (twoPlayerMode) {
+        for (size_t i = 0; i < snake2.size(); ++i) {
+            SDL_Rect rect = { snake2[i].x, snake2[i].y, BLOCK_SIZE, BLOCK_SIZE };
+            SDL_Texture* texture = nullptr;
+            double angle = 0;
+            // Rắn 2 không kim cương (tùy bạn)
+            if (i == 0) {
+                texture = headTexture2;
+                if (direction2 == UP) angle = 0;
+                else if (direction2 == RIGHT) angle = 90;
+                else if (direction2 == DOWN) angle = 180;
+                else if (direction2 == LEFT) angle = 270;
+            }
+            else if (i == snake2.size() - 1) {
+                texture = tailTexture2;
+                auto prev = snake2[i - 1];
+                if (prev.y < snake2[i].y) angle = 0;
+                else if (prev.x > snake2[i].x) angle = 90;
+                else if (prev.y > snake2[i].y) angle = 180;
+                else if (prev.x < snake2[i].x) angle = 270;
+            }
+            else {
+                texture = bodyTexture2;
+                auto prev = snake2[i - 1];
+                auto next = snake2[i + 1];
+                if (prev.x != snake2[i].x) angle = 90;
+            }
+            SDL_RenderCopyEx(renderer, texture, nullptr, &rect, angle, nullptr, SDL_FLIP_NONE);
+        }
+    }
+
+    // Vẽ food
+    SDL_Rect foodRect = { food.x, food.y, BLOCK_SIZE, BLOCK_SIZE };
+    SDL_RenderCopy(renderer, foodTexture, nullptr, &foodRect);
+
+    // Vẽ walls
+    for (const auto& wall : walls) {
+        SDL_RenderCopy(renderer, wallTexture, nullptr, &wall);
+    }
+    if (showWarning) SDL_RenderCopy(renderer, warningTexture, nullptr, &warningRect);
+    if (showBombWarning) SDL_RenderCopy(renderer, bombTexture, nullptr, &bombRect);
+    if (bombExploded) {
+        SDL_Rect explosionRect = { bombRect.x, bombRect.y, BLOCK_SIZE, BLOCK_SIZE };
+        SDL_RenderCopy(renderer, explosionTexture, nullptr, &explosionRect);
+    }
+
+    // Vẽ chest
+    if (chestVisible) {
+        SDL_RenderCopy(renderer, chestTexture, nullptr, &chestRect);
+    }
+
+    for (auto& b : bombs) {
+        if (!b.visible) continue;
+
+        if (!b.exploded) {
+            // Bomb chưa nổ → vẽ bombTexture
+            SDL_RenderCopy(renderer, bombTexture, nullptr, &b.rect);
+        }
+        else {
+            // Bomb đang nổ → vẽ explosionTexture
+            SDL_RenderCopy(renderer, explosionTexture, nullptr, &b.rect);
+        }
+    }
+    // Vẽ popup 3 item
+    renderChestEffect();
+
+    // Vẽ Score
+    if (!twoPlayerMode) {
+        SDL_Color black = { 0, 0, 0, 255 };
+        std::string scoreText1 = " Score: " + std::to_string(score1);
+        SDL_Surface* textSurface1 = TTF_RenderText_Solid(font, scoreText1.c_str(), black);
+        SDL_Texture* textTexture1 = SDL_CreateTextureFromSurface(renderer, textSurface1);
+        SDL_Rect textRect1 = { 20, 20, textSurface1->w, textSurface1->h };
+        SDL_RenderCopy(renderer, textTexture1, nullptr, &textRect1);
+        SDL_FreeSurface(textSurface1);
+        SDL_DestroyTexture(textTexture1);
+
+        // Vẽ starCount (nếu starCount>0) dưới Score
+        int starIconSize = 30;
+        int spacing = 5;
+        for (int i = 0; i < starCount; i++) {
+            SDL_Rect starR;
+            starR.x = 20 + i * (starIconSize + spacing);
+            starR.y = 20 + textRect1.h + 10;
+            starR.w = starIconSize;
+            starR.h = starIconSize;
+            SDL_RenderCopy(renderer, starTexture, nullptr, &starR);
+        }
+    }
+    if (twoPlayerMode) {
+        auto now = std::chrono::steady_clock::now();
+        int elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(now - twoPlayerStartTime).count();
+        int timeLeft = 180 - elapsedSec;
+        if (timeLeft <= 0) {
+            // HẾT GIỜ => dừng game, so sánh score1 vs score2
+            gameOver = true;
+            if (score1 > score2) {
+                displayGameOverMessage("PLAYER 1 WINS");
+            }
+            else if (score2 > score1) {
+                displayGameOverMessage("PLAYER 2 WINS");
+            }
+            else {
+                displayGameOverMessage("DRAW!");
+            }
+            return;
+        }
+        // Vẽ text "Time Left: Xs"
+        std::string timeText = "Time left: " + std::to_string(timeLeft) + "s";
+        SDL_Surface* timeSurface = TTF_RenderText_Solid(font, timeText.c_str(), { 0,0,0,255 });
+        SDL_Texture* timeTexture = SDL_CreateTextureFromSurface(renderer, timeSurface);
+        SDL_Rect timeRect = { 20, 20, timeSurface->w, timeSurface->h };
+        SDL_RenderCopy(renderer, timeTexture, nullptr, &timeRect);
+        SDL_FreeSurface(timeSurface);
+        SDL_DestroyTexture(timeTexture);
+    }
+
+
+    // Nếu diamondEffectActive, vẽ thời gian còn lại góc phải
+    if (diamondEffectActive) {
+        SDL_Color black = { 0, 0, 0, 255 };
+        auto now = std::chrono::steady_clock::now();
+        int elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - diamondEffectStartTime).count();
+        int diamondLeft = DIAMOND_DURATION - elapsed;
+        if (diamondLeft < 0) diamondLeft = 0;
+
+        std::string diamondTimeText = "Diamond: " + std::to_string(diamondLeft) + "s";
+        SDL_Surface* dSurf = TTF_RenderText_Solid(font, diamondTimeText.c_str(), black);
+        SDL_Texture* dTex = SDL_CreateTextureFromSurface(renderer, dSurf);
+        int dW, dH;
+        SDL_QueryTexture(dTex, nullptr, nullptr, &dW, &dH);
+        SDL_Rect dRect = { SCREEN_WIDTH - dW - 20, 20, dW, dH };
+        SDL_RenderCopy(renderer, dTex, nullptr, &dRect);
+        SDL_FreeSurface(dSurf);
+        SDL_DestroyTexture(dTex);
+    }
+
+    SDL_RenderPresent(renderer);
+}
+
+
+void SnakeGame::displayGameOverMessage(const std::string& message) {
+    SDL_Rect gameOverRect = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+    SDL_RenderCopy(renderer, gameOverTexture, nullptr, &gameOverRect);
+
+    SDL_Rect frameRect = { (SCREEN_WIDTH - 1200) / 2, (SCREEN_HEIGHT - 600) / 2, 1200, 600 };
+    SDL_RenderCopy(renderer, frameTexture, nullptr, &frameRect);
+
+    SDL_Color black = { 0, 0, 0, 255 };
+    SDL_Color red = { 255, 0, 0, 255 };
+    std::string gameOverMessage = message;
+
+
+    SDL_Surface* messageSurface = TTF_RenderText_Solid(largeArialFont, gameOverMessage.c_str(), red);
+    if (!messageSurface) {
+        std::cerr << "[DEBUG] TTF_RenderText_Solid(message) thất bại: " << TTF_GetError() << std::endl;
+        return;
+    }
+    SDL_Texture* messageTexture = SDL_CreateTextureFromSurface(renderer, messageSurface);
+
+    SDL_Rect messageRect = { frameRect.x + (frameRect.w - messageSurface->w) / 2, frameRect.y + 220, messageSurface->w, messageSurface->h };
+    SDL_RenderCopy(renderer, messageTexture, nullptr, &messageRect);
+
+    std::string instruction = "PRESS ENTER TO BACK MAIN MENU";
+    SDL_Surface* instructionSurface = TTF_RenderText_Solid(font, instruction.c_str(), black);
+    if (!instructionSurface) {
+        std::cerr << "[DEBUG] TTF_RenderText_Solid(instruction) thất bại: " << TTF_GetError() << std::endl;
+        return;
+    }
+
+    SDL_Texture* instructionTexture = SDL_CreateTextureFromSurface(renderer, instructionSurface);
+
+    SDL_Rect instructionRect = { frameRect.x + (frameRect.w - instructionSurface->w) / 2, frameRect.y + 300, instructionSurface->w, instructionSurface->h };
+    SDL_RenderCopy(renderer, instructionTexture, nullptr, &instructionRect);
+
+    SDL_FreeSurface(messageSurface);
+    SDL_DestroyTexture(messageTexture);
+    SDL_FreeSurface(instructionSurface);
+    SDL_DestroyTexture(instructionTexture);
+
+    SDL_RenderPresent(renderer);
+
+    bool waiting = true;
+    while (waiting) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN) {
+                waiting = false;
+                break;
+            }
+            if (e.type == SDL_QUIT) {
+                waiting = false;
+                exitGame = true;
+                break;
+            }
+        }
+    }
+}
+
+
+void SnakeGame::displayMainMenu() {
+    bool inMainMenu = true;
+    SDL_Color black = { 0, 0, 0, 255 };
+
+    while (inMainMenu && !exitGame) {
+        handleMainMenuEvents(inMainMenu);
+
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        std::string title = "SNAKE GAME";
+        SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+        SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurface);
+        SDL_DestroyTexture(titleTexture);
+
+        for (size_t i = 0; i < menuItems.size(); ++i) {
+            SDL_Color color = (i == selectedItem) ? SDL_Color{ 255, 0, 0, 255 } : black;
+            SDL_Surface* menuSurface = TTF_RenderText_Solid(arialFont, menuItems[i].c_str(), color);
+            SDL_Texture* menuTexture = SDL_CreateTextureFromSurface(renderer, menuSurface);
+            SDL_Rect menuRect = { SCREEN_WIDTH / 2 - menuSurface->w / 2, 200 + static_cast<int>(i) * 80, menuSurface->w, menuSurface->h };
+            SDL_RenderCopy(renderer, menuTexture, nullptr, &menuRect);
+            SDL_FreeSurface(menuSurface);
+            SDL_DestroyTexture(menuTexture);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+}
+
+void SnakeGame::handleMainMenuEvents(bool& inMainMenu) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            inMainMenu = false;
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                selectedItem = (selectedItem - 1 + menuItems.size()) % static_cast<int>(menuItems.size());
+                break;
+            case SDLK_DOWN:
+                selectedItem = (selectedItem + 1) % static_cast<int>(menuItems.size());
+                break;
+            case SDLK_RETURN:
+                switch (selectedItem) {
+                case 0:
+                    inMainMenu = false;
+                    currentState = GameState::PLAYER_SELECTION_MENU;
+                    return;
+                case 1:
+                    displayHighestScores();
+                    break;
+                case 2:
+                    displayIntroduction();
+                    break;
+                case 3:
+                    displaySettingMenu();
+                    break;
+                case 4:
+                    inMainMenu = false;
+                    exitGame = true;
+                    break;
+                }
+                break;
+            case SDLK_ESCAPE:
+                inMainMenu = false;
+                gameOver = true;
+                exitGame = true;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::displayPlayerSelectionMenu() {
+    bool inPlayerSelectionMenu = true;
+    bool startGame = false;
+    selectedItem = 0;
+    SDL_Color black = { 0, 0, 0, 255 };
+
+    while (inPlayerSelectionMenu && !exitGame) {
+        handlePlayerSelectionEvents(inPlayerSelectionMenu, startGame);
+
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        std::string title = "SELECT PLAYER MODE";
+        SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+        SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurface);
+        SDL_DestroyTexture(titleTexture);
+
+        for (size_t i = 0; i < playerSelectionItems.size(); ++i) {
+            SDL_Color color = (i == selectedItem) ? SDL_Color{ 255, 0, 0, 255 } : black;
+            SDL_Surface* menuSurface = TTF_RenderText_Solid(arialFont, playerSelectionItems[i].c_str(), color);
+            SDL_Texture* menuTexture = SDL_CreateTextureFromSurface(renderer, menuSurface);
+            SDL_Rect menuRect = { SCREEN_WIDTH / 2 - menuSurface->w / 2, 200 + static_cast<int>(i) * 80, menuSurface->w, menuSurface->h };
+            SDL_RenderCopy(renderer, menuTexture, nullptr, &menuRect);
+            SDL_FreeSurface(menuSurface);
+            SDL_DestroyTexture(menuTexture);
+        }
+
+        SDL_RenderPresent(renderer);
+
+        if (startGame) {
+            break;
+        }
+    }
+}
+
+void SnakeGame::handlePlayerSelectionEvents(bool& inPlayerSelectionMenu, bool& startGame) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) {
+            inPlayerSelectionMenu = false;
+            gameOver = true;
+            exitGame = true;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            switch (e.key.keysym.sym) {
+            case SDLK_UP:
+                selectedItem = (selectedItem - 1 + playerSelectionItems.size()) % static_cast<int>(playerSelectionItems.size());
+                break;
+            case SDLK_DOWN:
+                selectedItem = (selectedItem + 1) % static_cast<int>(playerSelectionItems.size());
+                break;
+            case SDLK_RETURN:
+                inPlayerSelectionMenu = false;
+                startGame = true;
+                switch (selectedItem) {
+                case 0:
+                    twoPlayerMode = false;
+                    break;
+                case 1:
+                    twoPlayerMode = true;
+                    break;
+                }
+                resetGame();
+                currentState = GameState::PLAYING;
+                return;
+            case SDLK_ESCAPE:
+                inPlayerSelectionMenu = false;
+                currentState = GameState::MAIN_MENU;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::displayHighestScores() {
+    SDL_Color black = { 0, 0, 0, 255 };
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+    std::string title = "HIGHEST SCORES";
+    SDL_Surface* titleSurface = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+    SDL_Texture* titleTexture = SDL_CreateTextureFromSurface(renderer, titleSurface);
+    SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurface->w / 2, 50, titleSurface->w, titleSurface->h };
+    SDL_RenderCopy(renderer, titleTexture, nullptr, &titleRect);
+    SDL_FreeSurface(titleSurface);
+    SDL_DestroyTexture(titleTexture);
+
+    for (size_t i = 0; i < highestScores.size(); ++i) {
+        std::string scoreText = std::to_string(i + 1) + ". " + std::to_string(highestScores[i]);
+        SDL_Surface* scoreSurface = TTF_RenderText_Solid(arialFont, scoreText.c_str(), black);
+        SDL_Texture* scoreTexture = SDL_CreateTextureFromSurface(renderer, scoreSurface);
+        SDL_Rect scoreRect = { SCREEN_WIDTH / 2 - scoreSurface->w / 2, 150 + static_cast<int>(i) * 50, scoreSurface->w, scoreSurface->h };
+        SDL_RenderCopy(renderer, scoreTexture, nullptr, &scoreRect);
+        SDL_FreeSurface(scoreSurface);
+        SDL_DestroyTexture(scoreTexture);
+    }
+
+    SDL_RenderPresent(renderer);
+
+    bool waiting = true;
+    while (waiting) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN) {
+                waiting = false;
+                break;
+            }
+            if (e.type == SDL_QUIT) {
+                waiting = false;
+                exitGame = true;
+                break;
+            }
+        }
+    }
+}
+
+void SnakeGame::updateHighestScores() {
+    highestScores.push_back(score1);
+    std::sort(highestScores.begin(), highestScores.end(), std::greater<int>());
+    if (highestScores.size() > MAX_SCORES) {
+        highestScores.pop_back();
+    }
+}
+void SnakeGame::displayIntroduction() {
+    bool inIntroMenu = true;
+    int introSelected = 0;  // 0 = "1 PLAYER", 1 = "2 PLAYER"
+    std::vector<std::string> introItems = { "1 PLAYER", "2 PLAYER" };
+
+    while (inIntroMenu && !exitGame) {
+        // handleIntroEvents
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                inIntroMenu = false;
+                exitGame = true;
+            }
+            else if (e.type == SDL_KEYDOWN) {
+                switch (e.key.keysym.sym) {
+                case SDLK_UP:
+                    introSelected = (introSelected - 1 + introItems.size()) % introItems.size();
+                    break;
+                case SDLK_DOWN:
+                    introSelected = (introSelected + 1) % introItems.size();
+                    break;
+                case SDLK_RETURN:
+                    inIntroMenu = false;
+                    // HIỂN THỊ introductionX.png tuỳ introSelected
+                    if (introSelected == 0) {
+                        // 1 PLAYER => hiển thị introduction1.png
+                        showIntroductionImage("introduction1.png");
+                    }
+                    else {
+                        // 2 PLAYER => hiển thị introduction2.png
+                        showIntroductionImage("introduction2.png");
+                    }
+                    break;
+                case SDLK_ESCAPE:
+                    inIntroMenu = false;
+                    break;
+                }
+            }
+        }
+
+        // Vẽ background
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        // Vẽ title "INTRODUCTION"
+        SDL_Color black = { 0,0,0,255 };
+        std::string title = "INTRODUCTION MENU";
+        SDL_Surface* titleSurf = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTex = SDL_CreateTextureFromSurface(renderer, titleSurf);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurf->w / 2, 50, titleSurf->w, titleSurf->h };
+        SDL_RenderCopy(renderer, titleTex, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurf);
+        SDL_DestroyTexture(titleTex);
+
+        // Vẽ 2 lựa chọn
+        for (int i = 0; i < introItems.size(); i++) {
+            SDL_Color color = (i == introSelected) ? SDL_Color{ 255,0,0,255 } : black;
+            SDL_Surface* itemSurf = TTF_RenderText_Solid(arialFont, introItems[i].c_str(), color);
+            SDL_Texture* itemTex = SDL_CreateTextureFromSurface(renderer, itemSurf);
+            SDL_Rect itemRect = { SCREEN_WIDTH / 2 - itemSurf->w / 2, 200 + i * 80, itemSurf->w, itemSurf->h };
+            SDL_RenderCopy(renderer, itemTex, nullptr, &itemRect);
+            SDL_FreeSurface(itemSurf);
+            SDL_DestroyTexture(itemTex);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+}
+
+// showIntroductionImage() => hiển thị 1 ảnh fullscreen
+void SnakeGame::showIntroductionImage(const std::string& imageName) {
+    SDL_Texture* introTex = IMG_LoadTexture(renderer, imageName.c_str());
+    SDL_Rect fullRect = { 0,0, SCREEN_WIDTH, SCREEN_HEIGHT };
+    bool waitIntro = true;
+    while (waitIntro && !exitGame) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) {
+                waitIntro = false;
+            }
+            else if (e.type == SDL_QUIT) {
+                waitIntro = false;
+                exitGame = true;
+            }
+        }
+
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, introTex, nullptr, &fullRect);
+        SDL_RenderPresent(renderer);
+    }
+    SDL_DestroyTexture(introTex);
+}
+
+
+void SnakeGame::displaySettingMenu() {
+    bool inSetting = true;
+    while (inSetting && !exitGame) {
+        // Handle events
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                exitGame = true;
+                inSetting = false;
+            }
+            else if (e.type == SDL_KEYDOWN) {
+                switch (e.key.keysym.sym) {
+                case SDLK_LEFT:
+                    volumePercent = std::max(0, volumePercent - 5);
+                    Mix_VolumeMusic(volumePercent * MIX_MAX_VOLUME / 100);
+                    break;
+                case SDLK_RIGHT:
+                    volumePercent = std::min(100, volumePercent + 5);
+                    Mix_VolumeMusic(volumePercent * MIX_MAX_VOLUME / 100);
+                    break;
+                case SDLK_ESCAPE:
+                    inSetting = false;
+                    currentState = previousState;
+                    break;
+                }
+            }
+        }
+
+        // Render Setting screen
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        // Vẽ tiêu đề "SETTING"
+        SDL_Color black = { 0, 0, 0, 255 };
+        std::string title = "SETTING";
+        SDL_Surface* titleSurf = TTF_RenderText_Solid(arialFont, title.c_str(), black);
+        SDL_Texture* titleTex = SDL_CreateTextureFromSurface(renderer, titleSurf);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurf->w / 2, 100, titleSurf->w, titleSurf->h };
+        SDL_RenderCopy(renderer, titleTex, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurf);
+        SDL_DestroyTexture(titleTex);
+
+        // Vẽ thanh âm lượng
+        std::string volumeText = "Volume: " + std::to_string(volumePercent) + "%";
+        SDL_Surface* volumeSurf = TTF_RenderText_Solid(font, volumeText.c_str(), black);
+        SDL_Texture* volumeTex = SDL_CreateTextureFromSurface(renderer, volumeSurf);
+        SDL_Rect volumeRect = { SCREEN_WIDTH / 2 - volumeSurf->w / 2, 300, volumeSurf->w, volumeSurf->h };
+        SDL_RenderCopy(renderer, volumeTex, nullptr, &volumeRect);
+        SDL_FreeSurface(volumeSurf);
+        SDL_DestroyTexture(volumeTex);
+
+        // Vẽ thanh slider âm lượng
+        int sliderWidth = 400;
+        int sliderHeight = 20;
+        int sliderX = SCREEN_WIDTH / 2 - sliderWidth / 2;
+        int sliderY = 350;
+
+        // Vẽ đường thanh slider
+        SDL_Rect sliderBar = { sliderX, sliderY, sliderWidth, sliderHeight };
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Đen
+        SDL_RenderFillRect(renderer, &sliderBar);
+
+        // Vẽ nút thanh slider theo `volumePercent`
+        int sliderHandleWidth = 10;
+        int sliderHandleX = sliderX + (volumePercent * (sliderWidth - sliderHandleWidth)) / 100;
+        int sliderHandleY = sliderY - 5;
+        SDL_Rect sliderHandle = { sliderHandleX, sliderHandleY, sliderHandleWidth, sliderHeight + 10 };
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Đỏ
+        SDL_RenderFillRect(renderer, &sliderHandle);
+
+        // Vẽ hướng dẫn
+        std::string instruction = "Use LEFT and RIGHT arrows to adjust volume. Press ESC to return.";
+        SDL_Surface* instrSurf = TTF_RenderText_Solid(font, instruction.c_str(), black);
+        SDL_Texture* instrTex = SDL_CreateTextureFromSurface(renderer, instrSurf);
+        SDL_Rect instrRect = { SCREEN_WIDTH / 2 - instrSurf->w / 2, 450, instrSurf->w, instrSurf->h };
+        SDL_RenderCopy(renderer, instrTex, nullptr, &instrRect);
+        SDL_FreeSurface(instrSurf);
+        SDL_DestroyTexture(instrTex);
+
+        SDL_RenderPresent(renderer);
+    }
+}
+void SnakeGame::displayPauseMenu() {
+    bool inPauseMenu = true;
+    int selectedPauseItem = 0;
+    std::vector<std::string> pauseItems = { "CONTINUE", "SETTING", "BACK TO MAIN MENU" };
+    SDL_Color black = { 0, 0, 0, 255 };
+
+    while (inPauseMenu && !exitGame) {
+        // Xử lý sự kiện trong Pause Menu
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                inPauseMenu = false;
+                exitGame = true;
+            }
+            if (e.type == SDL_KEYDOWN) {
+                switch (e.key.keysym.sym) {
+                case SDLK_UP:
+                    selectedPauseItem = (selectedPauseItem - 1 + pauseItems.size()) % pauseItems.size();
+                    break;
+                case SDLK_DOWN:
+                    selectedPauseItem = (selectedPauseItem + 1) % pauseItems.size();
+                    break;
+                case SDLK_RETURN:
+                    switch (selectedPauseItem) {
+                    case 0: // CONTINUE
+                        inPauseMenu = false;
+                        currentState = GameState::PLAYING;
+                        break;
+                    case 1: // SETTING
+                        previousState = currentState;
+                        inPauseMenu = false;
+                        currentState = GameState::SETTINGS;
+                        break;
+                    case 2: // BACK TO MAIN MENU
+                        inPauseMenu = false;
+                        currentState = GameState::MAIN_MENU;
+                        break;
+                    }
+                    break;
+                case SDLK_ESCAPE:
+                    inPauseMenu = false;
+                    currentState = GameState::PLAYING;
+                    break;
+                }
+            }
+        }
+
+        // Render Pause Menu
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, backgroundTexture, nullptr, nullptr);
+
+        // Vẽ tiêu đề "PAUSED"
+        std::string pauseTitle = "PAUSED";
+        SDL_Surface* titleSurf = TTF_RenderText_Solid(arialFont, pauseTitle.c_str(), black);
+        SDL_Texture* titleTex = SDL_CreateTextureFromSurface(renderer, titleSurf);
+        SDL_Rect titleRect = { SCREEN_WIDTH / 2 - titleSurf->w / 2, 150, titleSurf->w, titleSurf->h };
+        SDL_RenderCopy(renderer, titleTex, nullptr, &titleRect);
+        SDL_FreeSurface(titleSurf);
+        SDL_DestroyTexture(titleTex);
+
+        // Vẽ các lựa chọn trong Pause Menu
+        for (size_t i = 0; i < pauseItems.size(); ++i) {
+            SDL_Color color = (i == selectedPauseItem) ? SDL_Color{ 255, 0, 0, 255 } : black;
+            SDL_Surface* menuSurf = TTF_RenderText_Solid(arialFont, pauseItems[i].c_str(), color);
+            SDL_Texture* menuTex = SDL_CreateTextureFromSurface(renderer, menuSurf);
+            SDL_Rect menuRect = { SCREEN_WIDTH / 2 - menuSurf->w / 2, 250 + static_cast<int>(i) * 80, menuSurf->w, menuSurf->h };
+            SDL_RenderCopy(renderer, menuTex, nullptr, &menuRect);
+            SDL_FreeSurface(menuSurf);
+            SDL_DestroyTexture(menuTex);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
+}
+
+
+
+void SnakeGame::run() {
+    srand(static_cast<unsigned int>(time(0)));
+
+    while (!exitGame) {
+        switch (currentState) {
+        case GameState::MAIN_MENU:
+            displayMainMenu();
+            break;
+        case GameState::PLAYER_SELECTION_MENU:
+            displayPlayerSelectionMenu();
+            break;
+        case GameState::PLAYING:
+            // Không cần gọi resetGame() ở đây nữa vì đã được gọi khi chuyển sang PLAYING
+            break;
+        case GameState::PAUSED:
+            displayPauseMenu();
+            break;
+        case GameState::HIGHEST_SCORES:
+            displayHighestScores();
+            break;
+        case GameState::INTRODUCTION:
+            displayIntroduction();
+            break;
+        case GameState::SETTINGS:
+            displaySettingMenu();
+            break;
+        }
+
+        // Trạng thái PLAYING sẽ tiếp tục vòng lặp để chạy game
+        if (currentState == GameState::PLAYING && !gameOver && !exitGame) {
+            // Khởi tạo thời gian cập nhật cuối cùng
+            auto lastMoveTime = std::chrono::steady_clock::now();
+
+            while (currentState == GameState::PLAYING && !gameOver && !exitGame) {
+                handleEvents();
+
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+
+                if (elapsed >= speed) {
+                    update();
+                    lastMoveTime = now;
+                }
+
+                render();
+
+                // Thêm một độ trễ nhỏ để giảm tải CPU
+                SDL_Delay(16);
+            }
+        }
+
+        // Sau khi kết thúc PLAYING, hiển thị màn hình Game Over hoặc quay lại menu
+        if (gameOver && !exitGame) {
+            if (twoPlayerMode) {
+                displayGameOverMessage(winnerMessage);
+            }
+            else {
+                updateHighestScores();
+                displayGameOverMessage("GAME OVER");
+            }
+            gameOver = false; // Reset gameOver flag sau khi hiển thị
+            currentState = GameState::MAIN_MENU; // Quay lại Main Menu
+            std::cout << "Game Over. Returning to MAIN_MENU.\n"; // Debugging
+        }
+    }
+}
+int main(int argc, char* argv[]) {
+    SnakeGame game;
+    game.run();
+    return 0;
+}
